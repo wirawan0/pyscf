@@ -87,6 +87,78 @@ def from_integrals(output, h1e, h2e, nmo, nelec, nuc=0, ms=0, orbsym=[],
         fout.write(' %.16g  0  0  0  0\n' % nuc)
 
 
+# FCIDUMP reading routines below
+
+def pack_pair(i,j):
+   """Packs index for lower diagonal representation (i>=j) of
+   a symmetric square matrix.
+   Input:
+        0 <= i < N
+        0 <= j < N
+        j <= i
+
+   For safety we relax the last requirement and flip i<->j..
+   """
+   if j > i:
+     return j*(j+1)//2 + i
+   else:
+     return i*(i+1)//2 + j
+
+
+def _read_integrals_s4(fin, nmo, hcore, eri, debug=False):
+    """Reads the integral into the 4-fold symmetric representation.
+    Note that the ERI itself is still assumed to have an 8-fold symmetry.
+    """
+    assert len(hcore.shape) == 2 and tuple(hcore.shape) == (nmo, nmo)
+    npair = nmo*(nmo+1)//2
+    assert len(eri.shape) == 2 and tuple(eri.shape) == (npair, npair)
+    # TODO: check eri size
+    def nextline():
+        try:
+            return fin.next()
+        except StopIteration:
+            return None
+
+    if debug:
+        if isinstance(debug, basestring):
+            dbgfn = debug
+        else:
+            dbgfn = "_read_integrals_s4.dbg"
+        dbgf = open(dbgfn, 'w')
+        def dbg(msg, *argl):
+            dbgf.write(msg % argl)
+            dbgf.flush()
+    else:
+        def dbg(msg, *argl):
+            pass
+
+
+    ecore = None
+    hcore[:] = 0
+    eri[:] = 0
+    while True:
+        txt = nextline()
+        if txt is None:
+            break
+        F = txt.split()
+        i,j,k,l = map(int, F[1:])
+
+        if k == l == 0:
+            if i == j == 0:
+                ecore = float(F[0])
+            else:
+                hcore[i-1,j-1] = hcore[j-1,i-1] = float(F[0])
+        else:
+            ij = pack_pair(i-1,j-1)
+            kl = pack_pair(k-1,l-1)
+            eri[ij,kl] = eri[kl,ij] = float(F[0])
+            dbg("%s | %8d %8d %15.9f\n", txt, ij, kl, eri[ij,kl])
+
+    if debug:
+        dbgf.close()
+
+    return ecore, hcore, eri
+
 if __name__ == '__main__':
     # molpro_fcidump.py chkfile output
     from_chkfile(sys.argv[2], sys.argv[1])
